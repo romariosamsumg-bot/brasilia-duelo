@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "brasilia-duelo",
+  "workers_dev": false,
+  "main": "worker.mjs",
+  "compatibility_date": "2026-08-06",
+  "durable_objects": {"bindings": [{"name": "ROOMS", "class_name": "DuelRoom"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["DuelRoom"]}]
+}
