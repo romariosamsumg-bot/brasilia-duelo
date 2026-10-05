@@ -71,18 +71,26 @@ if(typeof module!=='undefined')module.exports=Combat;
 export class DuelRoom {
  constructor(ctx,env){this.ctx=ctx;this.env=env;this.players=[];this.phase='waiting';this.round=1;this.wins=[0,0];this.timer=null;this.expires=Date.now()+15*60*1000;this.match=null;this.frame=0;this.wait=0;this.last=0;this.acc=0;this.stage=0;this.result=null;this.closed=false;}
  async fetch(request){const u=new URL(request.url);if(request.headers.get('Upgrade')?.toLowerCase()!=='websocket')return new Response('WebSocket required',{status:426});
- if(this.closed||Date.now()>this.expires)return new Response('Sala expirada. Crie um novo convite.',{status:410});
- if(this.players.length>=2)return new Response('Sala cheia.',{status:409});
- const pair=new WebSocketPair(),[client,ws]=Object.values(pair);ws.accept();const player={ws,fighter:0,name:'Jogador',ready:false,inputs:{left:false,right:false,guard:false},count:0,window:Date.now(),lastSeq:-1,lastSeen:Date.now()};this.players.push(player);
- ws.addEventListener('message',event=>this.message(player,event.data));ws.addEventListener('close',()=>this.disconnect(player));ws.addEventListener('error',()=>this.disconnect(player));
- ws.send(JSON.stringify({type:'seat',seat:this.players.length-1}));this.broadcastLobby();this.startTimer();return new Response(null,{status:101,webSocket:client});}
- send(player,data){try{player.ws.send(JSON.stringify(data))}catch{this.disconnect(player)}}
+ this.sweep(Date.now());if(this.closed||Date.now()>this.expires)return new Response('Sala expirada. Crie um novo convite.',{status:410});
+ const token=u.searchParams.get('resume');let player=token?this.players.find(p=>p.resumeToken===token):null;
+ if(token&&!player)return new Response('Convite de retorno expirado.',{status:403});
+ if(player&&this.phase!=='waiting')return new Response('Duelo já iniciado.',{status:409});
+ if(!player&&this.players.length>=2)return new Response('Sala cheia.',{status:409});
+ const pair=new WebSocketPair(),[client,ws]=Object.values(pair);ws.accept();
+ if(!player){player={ws:null,fighter:0,name:'Jogador',ready:false,inputs:{left:false,right:false,guard:false},count:0,window:Date.now(),lastSeq:-1,lastSeen:Date.now(),resumeToken:crypto.randomUUID(),connected:false,suspended:false,graceUntil:0};this.players.push(player)}
+ const old=player.ws;player.ws=ws;player.connected=true;player.suspended=false;player.graceUntil=0;player.lastSeen=Date.now();player.lastSeq=-1;player.ready=false;if(old)try{old.close(1000,'Conexão restaurada')}catch{}
+ ws.addEventListener('message',event=>{if(player.ws===ws)this.message(player,event.data)});ws.addEventListener('close',()=>this.disconnect(player,ws));ws.addEventListener('error',()=>this.disconnect(player,ws));
+ ws.send(JSON.stringify({type:'seat',seat:this.players.indexOf(player),resumeToken:player.resumeToken}));this.broadcastLobby();this.startTimer();return new Response(null,{status:101,webSocket:client});}
+ send(player,data){if(!player.connected||!player.ws)return;try{player.ws.send(JSON.stringify(data))}catch{this.disconnect(player)}}
  broadcast(data){for(const player of [...this.players])this.send(player,data)}
- broadcastLobby(){this.broadcast({type:'lobby',players:this.players.map(p=>({name:p.name,fighter:p.fighter,ready:p.ready})),phase:this.phase})}
+ broadcastLobby(){this.broadcast({type:'lobby',players:this.players.map(p=>({name:p.name,fighter:p.fighter,ready:p.ready,connected:p.connected,away:p.suspended})),phase:this.phase})}
  message(p,raw){if(typeof raw!=='string'||raw.length>1024){p.ws.close(1008,'Mensagem inválida');return}const now=Date.now();p.lastSeen=now;if(now-p.window>=1000){p.window=now;p.count=0}if(++p.count>160){p.ws.close(1008,'Limite de comandos');return}let d;try{d=JSON.parse(raw)}catch{return}if(!d||typeof d!=='object')return;
+ if(d.type==='leave'){this.remove(p);return}
+ if(d.type==='suspend'&&this.phase==='waiting'){p.suspended=true;p.backgroundUntil=now+120000;p.ready=false;this.broadcastLobby();return}
+ if(d.type==='resume'&&this.phase==='waiting'){p.suspended=false;p.ready=false;this.broadcastLobby();return}
  if(d.type==='ping'){this.send(p,{type:'pong',time:d.time});return}
  if(d.type==='hello'&&this.phase==='waiting'){if(!Number.isInteger(d.fighter)||d.fighter<0||d.fighter>5)return;const name=typeof d.name==='string'?d.name.trim().normalize('NFC'):'';if(name.length<2||name.length>20||! /^[\p{L}\p{N} _.'-]+$/u.test(name)){this.send(p,{type:'error',message:'Nome: use de 2 a 20 letras, números ou espaços.'});return}p.fighter=d.fighter;p.name=name;p.hello=true;this.broadcastLobby();return}
- if(d.type==='ready'&&this.phase==='waiting'&&p.hello){p.ready=true;this.broadcastLobby();if(this.players.length===2&&this.players.every(x=>x.ready&&x.hello))this.begin();return}
+ if(d.type==='ready'&&this.phase==='waiting'&&p.hello&&!p.suspended){p.ready=true;this.broadcastLobby();if(this.players.length===2&&this.players.every(x=>x.ready&&x.hello&&x.connected&&!x.suspended))this.begin();return}
  if(d.type==='rematch'&&this.phase==='finished'){p.ready=true;this.broadcastLobby();if(this.players.length===2&&this.players.every(x=>x.ready))this.begin();return}
  if(d.type!=='input'||this.phase!=='fight'||!Number.isSafeInteger(d.seq)||d.seq<=p.lastSeq)return;p.lastSeq=d.seq;
  if(!d.keys||typeof d.keys!=='object'||!['left','right','guard'].every(k=>typeof d.keys[k]==='boolean'))return;
@@ -94,11 +102,13 @@ export class DuelRoom {
  snapshot(){const m=this.match;return{f:m.f,time:m.time,t:m.t,freeze:m.freeze,shots:m.shots,over:m.over,winner:m.winner,overtime:m.overtime,intro:m.intro,roundDamage:m.roundDamage,seed:m.seed,input:m.input,otherInput:m.otherInput}}
  startTimer(){if(this.timer)return;this.last=Date.now();this.acc=0;this.timer=setInterval(()=>this.tick(),1000/60)}
  stopTimer(){if(this.timer)clearInterval(this.timer);this.timer=null}
- tick(){const now=Date.now();for(const p of [...this.players])if(now-p.lastSeen>15000){this.disconnect(p);try{p.ws.close(1000,'Conexão inativa')}catch{}}if(this.closed)return;if(now>this.expires){this.end('A sala expirou. Crie um novo convite.');return}this.acc+=Math.min(.1,(now-this.last)/1000);this.last=now;if(this.phase==='waiting'||this.phase==='finished'){this.acc=0;return;}let steps=0;while(this.acc>=Combat.DT&&steps++<6){this.acc-=Combat.DT;if(this.phase==='round'){this.wait-=Combat.DT;if(this.wait<=0){if(Math.max(...this.wins)>=2){this.phase='finished';this.players.forEach(p=>p.ready=false);this.result=this.wins[0]===2?0:1;this.broadcast({type:'result',winner:this.result,wins:this.wins});return}if(this.match.winner>=0)this.round++;this.newRound()}continue}
+ tick(){const now=Date.now();this.sweep(now);if(this.closed)return;if(now>this.expires){this.end('A sala expirou. Crie um novo convite.');return}this.acc+=Math.min(.1,(now-this.last)/1000);this.last=now;if(this.phase==='waiting'||this.phase==='finished'){this.acc=0;return;}let steps=0;while(this.acc>=Combat.DT&&steps++<6){this.acc-=Combat.DT;if(this.phase==='round'){this.wait-=Combat.DT;if(this.wait<=0){if(Math.max(...this.wins)>=2){this.phase='finished';this.players.forEach(p=>p.ready=false);this.result=this.wins[0]===2?0:1;this.broadcast({type:'result',winner:this.result,wins:this.wins});return}if(this.match.winner>=0)this.round++;this.newRound()}continue}
  if(this.phase!=='fight')continue;this.match.step();this.frame++;if(this.match.over){const w=this.match.winner;if(w>=0)this.wins[w]++;this.phase='round';this.wait=3.9;this.broadcast({type:'snapshot',snapshot:this.snapshot(),events:this.match.events,round:this.round,wins:this.wins,phase:this.phase});this.match.events=[];break}
  if(this.frame%2===0){this.broadcast({type:'snapshot',snapshot:this.snapshot(),events:this.match.events,round:this.round,wins:this.wins,phase:this.phase});this.match.events=[]}}
  }
- disconnect(p){if(!this.players.includes(p))return;if(this.phase==='waiting'){this.players=this.players.filter(x=>x!==p);this.players.forEach((x,i)=>this.send(x,{type:'seat',seat:i}));this.broadcastLobby();if(!this.players.length){this.closed=true;this.stopTimer()}return}this.end('O adversário saiu ou perdeu a conexão. O duelo foi encerrado.');}
- end(message){if(this.closed)return;this.closed=true;this.phase='closed';this.stopTimer();const players=[...this.players];this.players=[];for(const p of players){try{p.ws.send(JSON.stringify({type:'ended',message}));p.ws.close(1000,'Duelo encerrado')}catch{}}}
+ sweep(now){for(const p of [...this.players]){if(!p.connected){if(this.phase==='waiting'&&now>p.graceUntil)this.remove(p);continue}const limit=this.phase==='waiting'?(p.suspended?120000:60000):15000;if(now-p.lastSeen>limit){const socket=p.ws;this.disconnect(p,socket);try{socket.close(1000,'Conexão inativa')}catch{}}}}
+ disconnect(p,socket=p.ws){if(!this.players.includes(p)||!p.connected||p.ws!==socket)return;if(this.phase==='waiting'){p.connected=false;p.ws=null;p.suspended=false;p.graceUntil=Date.now()+120000;p.ready=false;for(const k in p.inputs)p.inputs[k]=false;this.players.forEach(x=>x.ready=false);this.broadcastLobby();return}this.end('O adversário saiu ou perdeu a conexão. O duelo foi encerrado.');}
+ remove(p){if(!this.players.includes(p))return;if(this.phase!=='waiting'){this.end('O adversário saiu da sala. O duelo foi encerrado.');return}const socket=p.ws;this.players=this.players.filter(x=>x!==p);p.connected=false;p.ws=null;try{socket?.close(1000,'Saída da sala')}catch{}this.players.forEach((x,i)=>{x.ready=false;this.send(x,{type:'seat',seat:i,resumeToken:x.resumeToken})});this.broadcastLobby();if(!this.players.length){this.closed=true;this.stopTimer()}}
+ end(message){if(this.closed)return;this.closed=true;this.phase='closed';this.stopTimer();const players=[...this.players];this.players=[];for(const p of players){try{p.ws?.send(JSON.stringify({type:'ended',message}));p.ws?.close(1000,'Duelo encerrado')}catch{}}}
 }
-export default {async fetch(request,env){const u=new URL(request.url);if(u.pathname==='/health')return Response.json({ok:true,version:'5.0'});const m=u.pathname.match(/^\/room\/([A-F0-9]{8})$/);if(!m)return new Response('Not found',{status:404});const id=env.ROOMS.idFromName(m[1]);return env.ROOMS.get(id).fetch(request)}};
+export default {async fetch(request,env){const u=new URL(request.url);if(u.pathname==='/health')return Response.json({ok:true,version:'5.0.1'});const m=u.pathname.match(/^\/room\/([A-F0-9]{8})$/);if(!m)return new Response('Not found',{status:404});const id=env.ROOMS.idFromName(m[1]);return env.ROOMS.get(id).fetch(request)}};
