@@ -2,7 +2,7 @@
 'use strict';
 const Combat=(()=>{
 const DT=1/60,GROUND=448;
-const styles=[{speed:218,reach:8},{speed:204,reach:0},{speed:226,reach:2},{speed:212,reach:5},{speed:250,reach:-7},{speed:208,reach:3}];
+const styles=[{speed:218,reach:8},{speed:204,reach:0},{speed:226,reach:2},{speed:212,reach:5},{speed:250,reach:-7},{speed:208,reach:3},{speed:214,reach:7},{speed:239,reach:-3}];
 const moves={
  jab:{wind:.09,active:.085,recover:.17,damage:7,reach:131,stun:.24,push:70,cost:7,pose:1,level:'mid'},
  cross:{wind:.11,active:.085,recover:.21,damage:9,reach:144,stun:.27,push:80,cost:9,pose:1,level:'mid'},
@@ -37,7 +37,7 @@ class Match{
  if(name==='heavy'||name==='finisher'||name==='special'){b.down=name==='special'?1.08:.42;b.stun=name==='special'?1.12:.62;b.vy=name==='special'?460:250;b.y=Math.max(b.y,1)}this.freeze=name==='jab'?.045:name==='special'?.1:.075;this.emit('hit',{i,j,x:b.x,y:b.y,damage:dmg,combo:a.combo,total:a.comboDamage,counter,heavy:!['jab','cross','air'].includes(name),name});return true}
  advanceSpecial(i,dt,intents){const f=this.f[i],o=this.f[1-i],a=f.action,m=a.m;a.t+=dt;a.phaseTime+=dt;f.dir=o.x>=f.x?1:-1;f.vx=0;
  if(a.phase==='intro'){if(a.phaseTime>=.42){a.phase='chase';a.phaseTime=0}}
- else if(a.phase==='chase'){let gap=Math.abs(f.x-o.x);let speed=[580,555,640,560,690,590][f.id];if(f.id===1)speed*=.85+.3*Math.abs(Math.sin(a.phaseTime*9));if(f.id===2)speed*=Math.min(1.2,.75+a.phaseTime*.65);if(f.id===3)speed*=.65+.35*Math.abs(Math.sin(a.phaseTime*10));if(f.id===4)speed*=.5+.8*Math.abs(Math.sin(a.phaseTime*15));if(f.id===5)speed*=.85+.2*Math.sin(a.phaseTime*7);if(gap>105)f.x+=f.dir*Math.min(speed*dt,gap-102);f.y+=(o.y-f.y)*Math.min(1,dt*15);f.vy=0;if(Math.abs(f.x-o.x)<=112){a.phase='strike';a.phaseTime=0;this.emit('specialStrike',{i,id:f.id})}}
+ else if(a.phase==='chase'){let gap=Math.abs(f.x-o.x);let speed=[580,555,640,560,690,590,575,660][f.id];if(f.id===1)speed*=.85+.3*Math.abs(Math.sin(a.phaseTime*9));if(f.id===2)speed*=Math.min(1.2,.75+a.phaseTime*.65);if(f.id===3)speed*=.65+.35*Math.abs(Math.sin(a.phaseTime*10));if(f.id===4)speed*=.5+.8*Math.abs(Math.sin(a.phaseTime*15));if(f.id===5)speed*=.85+.2*Math.sin(a.phaseTime*7);if(f.id===6)speed*=.8+.25*Math.abs(Math.sin(a.phaseTime*12));if(f.id===7)speed*=.8+.3*Math.abs(Math.sin(a.phaseTime*18));if(gap>105)f.x+=f.dir*Math.min(speed*dt,gap-102);f.y+=(o.y-f.y)*Math.min(1,dt*15);f.vy=0;if(Math.abs(f.x-o.x)<=112){a.phase='strike';a.phaseTime=0;this.emit('specialStrike',{i,id:f.id})}}
  else if(a.phase==='strike'){// Follow the target through jumps and evasive movement; only guard or a hit interrupts.
  let gap=Math.abs(f.x-o.x);if(gap>105)f.x+=f.dir*Math.min(900*dt,gap-102);f.y+=(o.y-f.y)*Math.min(1,dt*20);f.vy=0;
  if(a.phaseTime>=.2&&Math.abs(f.x-o.x)<=125&&!a.hit){a.hit=true;intents.push({i,j:1-i,m,name:'special',ref:a});a.phase='recover';a.phaseTime=0}}
@@ -89,7 +89,7 @@ export class DuelRoom {
  if(d.type==='suspend'&&this.phase==='waiting'){p.suspended=true;p.backgroundUntil=now+120000;p.ready=false;this.broadcastLobby();return}
  if(d.type==='resume'&&this.phase==='waiting'){p.suspended=false;p.ready=false;this.broadcastLobby();return}
  if(d.type==='ping'){this.send(p,{type:'pong',time:d.time});return}
- if(d.type==='hello'&&this.phase==='waiting'){if(!Number.isInteger(d.fighter)||d.fighter<0||d.fighter>5)return;const name=typeof d.name==='string'?d.name.trim().normalize('NFC'):'';if(name.length<2||name.length>20||! /^[\p{L}\p{N} _.'-]+$/u.test(name)){this.send(p,{type:'error',message:'Nome: use de 2 a 20 letras, números ou espaços.'});return}p.fighter=d.fighter;p.name=name;p.hello=true;this.broadcastLobby();return}
+ if(d.type==='hello'&&this.phase==='waiting'){if(!Number.isInteger(d.fighter)||d.fighter<0||d.fighter>=Combat.styles.length)return;const name=typeof d.name==='string'?d.name.trim().normalize('NFC'):'';if(name.length<2||name.length>20||! /^[\p{L}\p{N} _.'-]+$/u.test(name)){this.send(p,{type:'error',message:'Nome: use de 2 a 20 letras, números ou espaços.'});return}p.fighter=d.fighter;p.name=name;p.hello=true;this.broadcastLobby();return}
  if(d.type==='ready'&&this.phase==='waiting'&&p.hello&&!p.suspended){p.ready=true;this.broadcastLobby();if(this.players.length===2&&this.players.every(x=>x.ready&&x.hello&&x.connected&&!x.suspended))this.begin();return}
  if(d.type==='rematch'&&this.phase==='finished'){p.ready=true;this.broadcastLobby();if(this.players.length===2&&this.players.every(x=>x.ready))this.begin();return}
  if(d.type!=='input'||this.phase!=='fight'||!Number.isSafeInteger(d.seq)||d.seq<=p.lastSeq)return;p.lastSeq=d.seq;
@@ -111,4 +111,4 @@ export class DuelRoom {
  remove(p){if(!this.players.includes(p))return;if(this.phase!=='waiting'){this.end('O adversário saiu da sala. O duelo foi encerrado.');return}const socket=p.ws;this.players=this.players.filter(x=>x!==p);p.connected=false;p.ws=null;try{socket?.close(1000,'Saída da sala')}catch{}this.players.forEach((x,i)=>{x.ready=false;this.send(x,{type:'seat',seat:i,resumeToken:x.resumeToken})});this.broadcastLobby();if(!this.players.length){this.closed=true;this.stopTimer()}}
  end(message){if(this.closed)return;this.closed=true;this.phase='closed';this.stopTimer();const players=[...this.players];this.players=[];for(const p of players){try{p.ws?.send(JSON.stringify({type:'ended',message}));p.ws?.close(1000,'Duelo encerrado')}catch{}}}
 }
-export default {async fetch(request,env){const u=new URL(request.url);if(u.pathname==='/health')return Response.json({ok:true,version:'5.0.1'});const m=u.pathname.match(/^\/room\/([A-F0-9]{8})$/);if(!m)return new Response('Not found',{status:404});const id=env.ROOMS.idFromName(m[1]);return env.ROOMS.get(id).fetch(request)}};
+export default {async fetch(request,env){const u=new URL(request.url);if(u.pathname==='/health')return Response.json({ok:true,version:'6.1'});const m=u.pathname.match(/^\/room\/([A-F0-9]{8})$/);if(!m)return new Response('Not found',{status:404});const id=env.ROOMS.idFromName(m[1]);return env.ROOMS.get(id).fetch(request)}};
