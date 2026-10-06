@@ -36,7 +36,7 @@ const moves={
 };
 function fighter(id,x,dir){return{id,x,y:0,vy:0,vx:0,dir,attackSerial:0,capturedBy:null,hp:140,guard:100,stamina:100,meter:0,stun:0,down:0,inv:0,dodge:0,dodgeCD:0,parryCD:0,parry:0,block:false,action:null,buffer:null,combo:0,comboDamage:0,comboTimer:0,hitChain:0,chainTimer:0,counter:0,move:0,flash:0,trail:0,wallLock:0,charge:0,stats:{hits:0,parries:0,dodges:0,maxCombo:0,damage:0,counters:0}}}
 class Match{
- constructor(a=0,b=1,{difficulty=1,seed=1,training=false,multiplayer=false,roundSeconds=60,specials=true,introSeconds=4.2}={}){this.seed=seed>>>0;this.difficulty=Math.max(0,Math.min(2,difficulty));this.brains=[0,1].map(()=>({samples:[],sampleAt:-1,clock:.1,guard:0,move:0,feint:0,lastSerial:-1,history:[]}));this.training=training;this.multiplayer=multiplayer;this.otherInput={left:false,right:false,guard:false};this.f=[fighter(a,280,1),fighter(b,680,-1)];this.untimed=roundSeconds===0;this.specials=specials;this.time=this.untimed?0:roundSeconds;this.t=0;this.freeze=0;this.events=[];this.shots=[];this.over=false;this.winner=null;this.overtime=false;this.aiClock=.55;this.aiBlock=0;this.aiMove=0;this.input={left:false,right:false,guard:false};this.lastTap=[-9,-9];this.introDuration=introSeconds;this.intro=introSeconds;this.roundDamage=[0,0]}
+ constructor(a=0,b=1,{difficulty=1,seed=1,training=false,multiplayer=false,roundSeconds=60,specials=true,introSeconds=4.2,refined=false,boss=false}={}){this.refined=!!refined;this.boss=!!boss&&!multiplayer&&!training;this.seed=seed>>>0;this.difficulty=Math.max(0,Math.min(2,difficulty));this.brains=[0,1].map(()=>({samples:[],sampleAt:-1,clock:.1,guard:0,move:0,feint:0,lastSerial:-1,history:[]}));this.training=training;this.multiplayer=multiplayer;this.otherInput={left:false,right:false,guard:false};this.f=[fighter(a,280,1),fighter(b,680,-1)];this.untimed=roundSeconds===0;this.specials=specials;this.time=this.untimed?0:roundSeconds;this.t=0;this.freeze=0;this.events=[];this.shots=[];this.over=false;this.winner=null;this.overtime=false;this.aiClock=.55;this.aiBlock=0;this.aiMove=0;this.input={left:false,right:false,guard:false};this.lastTap=[-9,-9];this.introDuration=introSeconds;this.intro=introSeconds;this.roundDamage=[0,0]}
  random(){this.seed=(Math.imul(this.seed,1664525)+1013904223)>>>0;return this.seed/4294967296}
  emit(type,data={}){this.events.push({type,...data})}
  clear(){this.input.left=this.input.right=this.input.guard=false;this.f.forEach(f=>{f.block=false;f.buffer=null;f.charge=0})}
@@ -44,14 +44,14 @@ class Match{
  if(key==='dodge'){if(f.y===0&&f.stun<=0&&!f.down&&!f.action&&f.dodgeCD<=0&&f.stamina>=28){let d=this.multiplayer||i===0?((+(i===0?this.input:this.otherInput).right)-(+(i===0?this.input:this.otherInput).left))||-f.dir:-f.dir;f.dodge=.24;f.inv=.19;f.vx=d*640;f.stamina-=28;f.dodgeCD=.78;f.block=false;this.emit('dodge',{i});return true}return false}
  if(key==='burst'){if(f.meter>=100&&(f.stun>0||f.down>0)){f.meter=0;f.stun=0;f.down=0;f.inv=.38;const o=this.f[1-i];if(Math.abs(f.x-o.x)<230){o.vx=f.dir*520;o.stun=.32;o.action=null}this.emit('burst',{i});return true}return false}
 
- if(f.stun>0||f.down>0||f.dodge>0){f.buffer={key,ttl:.14};return false}
- if(f.action){const ac=f.action;if(ac.name==='special')return false;if(ac.connected&&ac.t>=ac.m.wind+ac.m.active&&ac.t<ac.total&&ac.name==='jab'&&key==='punch')return this.begin(i,'cross');if(ac.connected&&ac.t>=ac.m.wind+ac.m.active&&ac.name==='cross'&&key==='kick')return this.begin(i,'finisher');if(ac.connected&&ac.t>=ac.m.wind+ac.m.active&&key==='special')return this.begin(i,'special');f.buffer={key,ttl:.16};return false}
+ if(f.stun>0||f.down>0||f.dodge>0){f.buffer={key,ttl:this.refined?.18:.14};return false}
+ if(f.action){const ac=f.action;if(ac.name==='special')return false;if(ac.connected&&ac.t>=ac.m.wind+ac.m.active&&ac.t<ac.total&&ac.name==='jab'&&key==='punch')return this.begin(i,'cross');if(ac.connected&&ac.t>=ac.m.wind+ac.m.active&&ac.name==='cross'&&key==='kick')return this.begin(i,'finisher');if(ac.connected&&ac.t>=ac.m.wind+ac.m.active&&key==='special')return this.begin(i,'special');f.buffer={key,ttl:this.refined?.18:.16};return false}
  let name=key==='punch'?'jab':key==='kick'?'kick':key==='upper'?'upper':key==='heavy'?'heavy':key==='special'?'special':null;if(!name)return false;if(f.y>6&&name!=='special')name='air';if(f.y>6&&name==='special')return false;return this.begin(i,name)}
  begin(i,name){if(name==='special'&&!this.specials)return false;const f=this.f[i];let m={...moves[name]};const st=styles[f.id];if(name!=='special'){m.wind*=st.wind;m.recover*=st.recover;m.damage+=name==='air'?0:st.damage||0;}if(name==='special'){if(f.meter<100)return false;f.meter=0;m={...m,...specials[f.id],active:.16,reach:122,stun:1.1,pose:f.id===1||f.id===4?2:1,grab:false};this.emit('special',{i,id:f.id})}
  if(f.stamina<m.cost){this.emit('tired',{i});return false}f.stamina-=m.cost;f.attackSerial++;if(st.advance&&f.y===0&&name!=='special'){const gap=Math.abs(f.x-this.f[1-i].x);f.x+=f.dir*Math.min(st.advance,Math.max(0,gap-65));}f.block=false;f.charge=0;f.buffer=null;f.action={name,m,t:0,total:m.wind+m.active+m.recover,hit:false,hit2:false,connected:false,spawned:false,phase:name==='special'?'intro':null,phaseTime:0};return true}
  setBlock(i,v){const f=this.f[i];if(f.capturedBy!==null){f.block=false;return;}if(v&&!f.block&&(f.y===0||this.f[1-i].action?.name==='special')&&!f.action&&f.stun<=0&&!f.down&&(!f.dodge||this.f[1-i].action?.name==='special')&&f.guard>4){f.block=true;if(f.parryCD<=0){f.parry=styles[f.id].parry||.115;f.parryCD=.55}}else if(!v)f.block=false}
  ai(dt){this.controlAI(1,dt)}
- controlAI(i,dt=DT){if(this.training||this.over||this.intro>0)return;const f=this.f[i],op=this.f[1-i],d=this.difficulty,profile=aiProfile(d),s=this.brains[i],input=i===0?this.input:this.otherInput;
+ controlAI(i,dt=DT){if(this.boss&&i===1)return this.controlBoss(i,dt);if(this.training||this.over||this.intro>0)return;const f=this.f[i],op=this.f[1-i],d=this.difficulty,profile=aiProfile(d),s=this.brains[i],input=i===0?this.input:this.otherInput;
  // Only observable fighter state enters this delayed perception queue. Never inspect opponent input.
  if(s.sampleAt!==this.t){s.sampleAt=this.t;const a=op.action;s.samples.push({at:this.t,x:op.x,y:op.y,hp:op.hp,block:op.block,action:a?{name:a.name,t:a.t,wind:a.m.wind,active:a.m.active,total:a.total,serial:op.attackSerial}:null})}
  while(s.samples.length>1&&s.samples[1].at<=this.t-profile.reaction)s.samples.shift();const seen=s.samples[0];if(!seen||seen.at>this.t-profile.reaction){input.left=input.right=input.guard=false;f.move=0;return}
@@ -75,6 +75,41 @@ class Match{
  if(f.guard<22){s.guard=0;s.move=-dir}if((f.x<90&&s.move<0)||(f.x>870&&s.move>0))s.move=dir;
  }
  move=s.feint>0?-dir:s.move;input.left=move<0;input.right=move>0;input.guard=s.guard>0;f.move=move;this.setBlock(i,input.guard);
+ }
+ controlBoss(i,dt){
+ if(this.training||this.over||this.intro>0)return;
+ const f=this.f[i],op=this.f[1-i],s=this.brains[i],input=this.otherInput;
+ // These are choices, not stat multipliers. Observation is delayed by at least 220 ms.
+ const profiles=[{range:166,guard:.72,combo:.70,bait:.20},{range:100,guard:.62,combo:.94,bait:.08},{range:122,guard:.63,combo:.83,bait:.26},{range:142,guard:.82,combo:.73,bait:.12},{range:127,guard:.67,combo:.76,bait:.34},{range:94,guard:.69,combo:.89,bait:.09},{range:169,guard:.71,combo:.72,bait:.16},{range:120,guard:.73,combo:.80,bait:.29}];
+ const p=profiles[f.id],reaction=.22;
+ if(s.sampleAt!==this.t){s.sampleAt=this.t;const a=op.action;s.samples.push({at:this.t,x:op.x,y:op.y,hp:op.hp,block:op.block,stun:op.stun,down:op.down,action:a?{name:a.name,t:a.t,wind:a.m.wind,active:a.m.active,total:a.total,serial:op.attackSerial,connected:a.connected,phase:a.phase}:null})}
+ while(s.samples.length>1&&s.samples[1].at<=this.t-reaction)s.samples.shift();const seen=s.samples[0];
+ if(!seen||seen.at>this.t-reaction){input.left=input.right=input.guard=false;f.move=0;return}
+ const a=seen.action,dist=Math.abs(seen.x-f.x),dir=seen.x>=f.x?1:-1,reach=131+styles[f.id].reach;
+ if(a&&a.serial!==s.lastSerial){s.lastSerial=a.serial;s.history.push(a.name);if(s.history.length>6)s.history.shift()}
+ if(!s.phase&&f.hp<=60){s.phase=1;this.emit('bossPhase',{i,id:f.id})}
+ const repeated=s.history.length>=3&&s.history.slice(-3).every(n=>n===s.history.at(-1));
+ const range=p.range-(s.phase?12:0);s.clock-=dt;s.guard=Math.max(0,s.guard-dt);s.feint=Math.max(0,s.feint-dt);
+ if(s.clock<=0){s.clock=.13+this.random()*.14;const r=this.random();let kind='position';s.move=dist>range+12?dir:dist<range-24?-dir:0;
+ if(f.capturedBy!==null||f.stun>0||f.down>0){s.move=0;s.guard=0}
+ else if(f.action){s.move=0;if(f.action.connected&&r<p.combo){if(f.action.name==='jab')this.command(i,'punch');else if(f.action.name==='cross')this.command(i,'kick')}kind='combo'}
+ else if(f.stamina<30||f.guard<20){s.move=-dir;s.guard=f.guard>=20&&a&&dist<230?.22:0;kind='recover'}
+ else if(r<.10){s.guard=0;s.move=0;s.clock+=.13;kind='hesitate'}
+ else if(a&&(a.name==='special'&&a.phase!=='recover'||a.t<a.wind+a.active&&dist<240)&&r<p.guard){s.guard=.25+this.random()*.15;s.move=0;kind='defend'}
+ else if(repeated&&dist<210&&r<.58){s.guard=.24;s.move=-dir;kind='adapt'}
+ else if(f.meter>=100&&this.specials&&!seen.block&&dist<260&&(seen.stun>.18||a&&a.name!=='special'&&a.total-a.t>.28&&a.t>=a.wind+a.active)&&r<.74){s.guard=0;this.command(i,'special');kind='special-opening'}
+ else if(a&&a.name!=='special'&&a.t>=a.wind+a.active&&!a.connected&&dist<190+styles[f.id].reach){s.guard=0;this.command(i,dist<reach?'punch':'kick');kind='punish'}
+ else if(f.id===7&&a&&a.t<a.wind&&dist<reach&&r<.65){s.guard=0;this.command(i,'punch');kind='interrupt'}
+ else if(seen.y>35&&dist<reach&&r<.8){s.guard=0;this.command(i,'upper');kind='anti-air'}
+ else if(dist>140&&dist<255&&r<p.bait){s.feint=.16+this.random()*.12;s.move=-dir;kind='bait'}
+ else if(dist<reach){s.guard=0;this.command(i,seen.block&&r>.55?'heavy':r<.78?'punch':'kick');kind='pressure'}
+ else if(dist<190+styles[f.id].reach&&r<((f.id===0||f.id===6)?.84:.53)){s.guard=0;this.command(i,'kick');kind='reach'}
+ else if((f.id===1||f.id===2||f.id===5)&&dist<230){s.move=dir;kind='close'}
+ if((f.x<95&&s.move<0)||(f.x>865&&s.move>0)){s.move=dir;s.feint=0}
+ this.emit('aiDecision',{i,kind:'boss-'+kind,observedAt:seen.at});
+ }
+ let move=s.feint>0?-dir:s.move;if((f.x<80&&move<0)||(f.x>880&&move>0))move=dir;
+ input.left=move<0;input.right=move>0;input.guard=s.guard>0;f.move=move;this.setBlock(i,input.guard);
  }
  damage(i,j,m,name,scale=1){const a=this.f[i],b=this.f[j];if(name!=='special'&&(b.inv>0||b.down>0)){this.emit('evade',{i:j});return false}if(b.counter>0){b.counter=0;b.action=null;a.action=null;a.hp=Math.max(0,a.hp-29);a.stun=.5;a.vx=-a.dir*370;b.stats.damage+=29;this.roundDamage[j]+=29;this.freeze=.085;this.emit('counter',{i:j,x:a.x,y:a.y});return false}
  if(b.block&&!m.grab){if(b.parry>0){b.parry=0;a.action=null;a.stun=.52;a.vx=-a.dir*160;b.meter=Math.min(100,b.meter+15);b.stamina=Math.min(100,b.stamina+15);b.stats.parries++;this.freeze=.09;this.emit('parry',{i:j,x:b.x,y:b.y});return false}b.guard=Math.max(0,b.guard-(m.break||m.damage*1.6)*(styles[b.id].guardUse||1));b.vx=a.dir*80;b.stamina=Math.max(0,b.stamina-3);a.meter=Math.min(100,a.meter+(name==='special'?0:1));this.freeze=.025;this.emit('block',{i:j,x:b.x,y:b.y});if(b.guard<=0){b.block=false;b.stun=.85;b.action=null;this.emit('guardbreak',{i:j})}return false}
@@ -115,8 +150,9 @@ class Match{
 return{Match,moves,styles,specials,ladderDifficulty,aiProfile,DT,GROUND,version:'7.0'};})();
 if(typeof module!=='undefined')module.exports=Combat;
 
+
 // Authoritative rooms and a public directory share the existing ROOMS namespace.
-const VERSION='7.0',DIR='__public_directory_62';
+const VERSION='7.3',DIR='__public_directory_62';
 const json=(data,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store'}});
 const validName=(s,min=2,max=20)=>typeof s==='string'&&s.trim().length>=min&&s.trim().length<=max&&/^[\p{L}\p{N} _.'!?-]+$/u.test(s.trim());
 const validSettings=s=>s&&validName(s.name,3,32)&&[0,30,45,60].includes(s.seconds)&&typeof s.specials==='boolean'&&['public','private'].includes(s.visibility);
@@ -149,13 +185,13 @@ export class DuelRoom{
  message(p,raw){if(typeof raw!=='string'||raw.length>1500){p.ws.close(1008,'Mensagem inválida');return}const now=Date.now();p.lastSeen=now;if(now-p.window>=1000){p.window=now;p.count=0}if(++p.count>160){p.ws.close(1008,'Limite de comandos');return}let d;try{d=JSON.parse(raw)}catch{return}if(!d||typeof d!=='object')return;
  if(d.type==='leave'){this.remove(p);return}if(d.type==='ping'){this.send(p,{type:'pong',time:d.time});return}
  if(['suspend','resume'].includes(d.type)&&this.phase==='waiting'){p.suspended=d.type==='suspend';if(p.suspended&&this.settings.visibility==='private'&&p.seat===1)p.ready=false;this.broadcastLobby();return}
- if(d.type==='hello'&&this.phase==='waiting'){if(d.protocol!==VERSION){this.send(p,{type:'error',message:'Atualize o jogo para a versão 7.0 e entre novamente.'});return}if(!Number.isInteger(d.fighter)||d.fighter<0||d.fighter>=Combat.styles.length||!validName(d.name))return;p.fighter=d.fighter;p.name=d.name.trim();p.hello=true;p.ready=p.seat===0||this.settings.visibility==='public';this.broadcastLobby();return}
+ if(d.type==='hello'&&this.phase==='waiting'){if(d.protocol!==VERSION){this.send(p,{type:'error',message:'Atualize o jogo para a versão 7.3 e entre novamente.'});return}if(!Number.isInteger(d.fighter)||d.fighter<0||d.fighter>=Combat.styles.length||!validName(d.name))return;p.fighter=d.fighter;p.name=d.name.trim();p.hello=true;p.ready=p.seat===0||this.settings.visibility==='public';this.broadcastLobby();return}
  if(d.type==='ready'&&this.phase==='waiting'&&p.hello&&!p.suspended){p.ready=true;this.broadcastLobby();return}
  if(d.type==='start'&&p.seat===0&&this.phase==='waiting'){if(this.players.every(x=>x?.ready&&x.hello&&x.connected&&!x.suspended))this.begin();else this.send(p,{type:'error',message:'Aguarde os dois jogadores estarem prontos.'});return}
  if(d.type==='rematch'&&this.phase==='finished'){p.ready=true;this.broadcastLobby();if(this.players.every(x=>x?.ready&&x.connected))this.begin();return}
  if(d.type!=='input'||this.phase!=='fight'||!Number.isSafeInteger(d.seq)||d.seq<=p.lastSeq)return;p.lastSeq=d.seq;if(!d.keys||!['left','right','guard'].every(k=>typeof d.keys[k]==='boolean'))return;Object.assign(p.inputs,{left:d.keys.left,right:d.keys.right,guard:d.keys.guard});Object.assign(p.seat===0?this.match.input:this.match.otherInput,p.inputs);if(['punch','kick','heavy','upper','jump','dodge','special'].includes(d.command))this.match.command(p.seat,d.command)}
- begin(){this.presentationShown=false;this.round=1;this.wins=[0,0];this.stage=crypto.getRandomValues(new Uint32Array(1))[0]%6;this.expires=Date.now()+6*3600000;for(const p of this.players){p.ready=false;p.inputs={left:false,right:false,guard:false}}this.newRound();this.listing();this.startTimer()}
- newRound(){this.match=new Combat.Match(this.players[0].fighter,this.players[1].fighter,{seed:crypto.getRandomValues(new Uint32Array(1))[0],multiplayer:true,roundSeconds:this.settings.seconds,specials:this.settings.specials,introSeconds:this.presentationShown?0:4.2});this.presentationShown=true;this.phase='fight';this.frame=0;this.wait=0;this.players.forEach(p=>p.inputs={left:false,right:false,guard:false});this.broadcast({type:'start',settings:this.settings,stage:this.stage,round:this.round,wins:this.wins,players:this.players.map(p=>({fighter:p.fighter,name:p.name})),snapshot:this.snapshot()})}
+ begin(){this.presentationShown=false;this.round=1;this.wins=[0,0];this.stage=crypto.getRandomValues(new Uint32Array(1))[0]%8;this.expires=Date.now()+6*3600000;for(const p of this.players){p.ready=false;p.inputs={left:false,right:false,guard:false}}this.newRound();this.listing();this.startTimer()}
+ newRound(){this.match=new Combat.Match(this.players[0].fighter,this.players[1].fighter,{seed:crypto.getRandomValues(new Uint32Array(1))[0],multiplayer:true,refined:true,roundSeconds:this.settings.seconds,specials:this.settings.specials,introSeconds:this.presentationShown?0:4.2});this.presentationShown=true;this.phase='fight';this.frame=0;this.wait=0;this.players.forEach(p=>p.inputs={left:false,right:false,guard:false});this.broadcast({type:'start',settings:this.settings,stage:this.stage,round:this.round,wins:this.wins,players:this.players.map(p=>({fighter:p.fighter,name:p.name})),snapshot:this.snapshot()})}
  snapshot(){const m=this.match;return{f:m.f,time:m.time,untimed:m.untimed,specials:m.specials,introDuration:m.introDuration,t:m.t,freeze:m.freeze,shots:m.shots,over:m.over,winner:m.winner,overtime:m.overtime,intro:m.intro,roundDamage:m.roundDamage,seed:m.seed,input:m.input,otherInput:m.otherInput}}
  startTimer(){if(this.timer)return;this.last=Date.now();this.acc=0;this.timer=setInterval(()=>this.tick(),1000/60)}stopTimer(){if(this.timer)clearInterval(this.timer);this.timer=null}
  tick(){const now=Date.now();this.sweep(now);if(this.closed)return;if(now>this.expires){this.end('A sala expirou.');return}if(this.phase==='waiting'&&now-this.lastListing>15000)this.listing();this.acc+=Math.min(.1,(now-this.last)/1000);this.last=now;if(['waiting','finished'].includes(this.phase)){this.acc=0;return}let steps=0;while(this.acc>=Combat.DT&&steps++<6){this.acc-=Combat.DT;if(this.phase==='round'){this.wait-=Combat.DT;if(this.wait<=0){if(Math.max(...this.wins)>=2){this.phase='finished';this.players.forEach(p=>p.ready=false);this.broadcast({type:'result',winner:this.wins[0]===2?0:1,wins:this.wins});return}if(this.match.winner>=0)this.round++;this.newRound()}continue}if(this.phase!=='fight')continue;this.match.step();this.frame++;if(this.match.over){const w=this.match.winner;if(w>=0)this.wins[w]++;this.phase='round';this.wait=3.9;this.broadcast({type:'snapshot',snapshot:this.snapshot(),events:this.match.events,round:this.round,wins:this.wins,phase:this.phase});this.match.events=[];break}if(this.frame%2===0){this.broadcast({type:'snapshot',snapshot:this.snapshot(),events:this.match.events,round:this.round,wins:this.wins,phase:this.phase});this.match.events=[]}}}
@@ -164,7 +200,7 @@ export class DuelRoom{
  remove(p){if(!this.players.includes(p))return;if(p.seat===0||this.phase!=='waiting'){this.end('O criador ou o adversário saiu. A sala foi encerrada.');return}this.players[1]=null;p.connected=false;try{p.ws?.close(1000,'Saída da sala')}catch{}this.broadcastLobby()}
  end(message){if(this.closed)return;this.closed=true;this.phase='closed';this.stopTimer();this.listing();this.ctx.waitUntil(this.ctx.storage.put('room',{code:this.code,settings:this.settings,hostTicket:this.hostTicket,expires:0}));for(const p of this.players)if(p)try{p.ws?.send(JSON.stringify({type:'ended',message}));p.ws?.close(1000,'Duelo encerrado')}catch{}this.players=[null,null]}
 }
-export default{async fetch(request,env){const u=new URL(request.url);if(u.pathname==='/health')return json({ok:true,version:VERSION,release:'7.0.2'});const directory=()=>env.ROOMS.get(env.ROOMS.idFromName(DIR));
+export default{async fetch(request,env){const u=new URL(request.url);if(u.pathname==='/health')return json({ok:true,version:VERSION,release:'7.3.0'});const directory=()=>env.ROOMS.get(env.ROOMS.idFromName(DIR));
  if(u.pathname==='/rooms'&&request.method==='GET')return directory().fetch('https://internal/directory/list');
  if(u.pathname==='/rooms'&&request.method==='POST'){let raw=await request.text();if(raw.length>2048)return json({message:'Dados inválidos.'},413);let settings;try{settings=JSON.parse(raw)}catch{return json({},400)}if(!validSettings(settings))return json({message:'Configurações inválidas.'},400);const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(request.headers.get('CF-Connecting-IP')||'local'));const requestId=settings.requestId;settings={name:settings.name,seconds:settings.seconds,specials:settings.specials,visibility:settings.visibility};const client=[...new Uint8Array(hash)].map(n=>n.toString(16).padStart(2,'0')).join('');return directory().fetch('https://internal/directory/create',{method:'POST',body:JSON.stringify({settings,client,requestId})})}
  const info=u.pathname.match(/^\/rooms\/([A-F0-9]{8})$/),room=u.pathname.match(/^\/room\/([A-F0-9]{8})$/);if(!info&&!room)return json({},404);const code=(info||room)[1],obj=env.ROOMS.get(env.ROOMS.idFromName(code));return info?obj.fetch('https://internal/info'):obj.fetch(request)}};
